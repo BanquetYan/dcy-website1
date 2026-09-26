@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://banquetyan.github.io/dcy-website1/sitemap.xml
