@@ -1,0 +1,9 @@
+/* DCY V7.1: click to enlarge non-link content images */
+(()=>{'use strict';let pictures=[],index=0,layer;
+function eligible(img){return img.closest('.detail-image,.gallery,.article-body')&&!img.closest('a')}
+function close(){if(layer){layer.remove();layer=null;document.removeEventListener('keydown',key)}}
+function show(){const img=layer.querySelector('img');img.src=pictures[index].src;img.alt=pictures[index].alt||'圖片預覽';layer.querySelector('.dcy-lb-count').textContent=`${index+1} / ${pictures.length}`}
+function step(n){index=(index+n+pictures.length)%pictures.length;show()}
+function key(e){if(e.key==='Escape')close();if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)}
+document.addEventListener('click',e=>{const target=e.target.closest('img');if(!target||!eligible(target))return;pictures=[...document.querySelectorAll('.detail-image img,.gallery img,.article-body img')].filter(eligible);index=pictures.indexOf(target);if(index<0)return;layer=document.createElement('div');layer.className='dcy-lightbox';layer.innerHTML='<button class="dcy-lb-close" aria-label="關閉">×</button><button class="dcy-lb-prev" aria-label="上一張">‹</button><img alt=""><button class="dcy-lb-next" aria-label="下一張">›</button><span class="dcy-lb-count"></span>';document.body.append(layer);layer.querySelector('.dcy-lb-close').onclick=close;layer.querySelector('.dcy-lb-prev').onclick=()=>step(-1);layer.querySelector('.dcy-lb-next').onclick=()=>step(1);layer.onclick=ev=>{if(ev.target===layer)close()};let start=0;layer.addEventListener('touchstart',ev=>{start=ev.changedTouches[0].screenX},{passive:true});layer.addEventListener('touchend',ev=>{const delta=ev.changedTouches[0].screenX-start;if(Math.abs(delta)>45)step(delta>0?-1:1)},{passive:true});document.addEventListener('keydown',key);show()});
+})();
