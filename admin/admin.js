@@ -38,8 +38,86 @@ boot();
 let inquiries=[],articles=[],faqs=[];
 async function loadHome(){const {data}=await db.from('site_settings').select('*').eq('id',1).maybeSingle();if(!data)return;$('hTitle').value=data.hero_title||'從想法，到實際製作。';$('hSubtitle').value=data.hero_subtitle||'';$('hDescription').value=data.hero_description||'';$('hQuoteText').value=data.quote_button_text||'取得報價'}
 $('homeForm').onsubmit=async e=>{e.preventDefault();try{let p={hero_title:$('hTitle').value,hero_subtitle:$('hSubtitle').value,hero_description:$('hDescription').value,quote_button_text:$('hQuoteText').value,updated_at:new Date().toISOString()};if($('hImage').files[0])p.hero_image_url=await upload($('hImage').files[0],'home');let {error}=await db.from('site_settings').update(p).eq('id',1);if(error)throw error;$('homeMsg').textContent='✓ 首頁設定已儲存'}catch(err){$('homeMsg').textContent=err.message}}
-async function loadInquiries(){const {data}=await db.from('inquiries').select('*').order('created_at',{ascending:false});inquiries=data||[];$('dInquiries').textContent=inquiries.filter(x=>x.status==='new').length;let rows=[];for(const x of inquiries){let links=[];for(let i=0;i<(x.file_urls||[]).length;i++){let {data:signed}=await db.storage.from('inquiry-files').createSignedUrl(x.file_urls[i],3600);if(signed?.signedUrl)links.push(`<a href="${signed.signedUrl}" target="_blank">附件 ${i+1}</a>`)}rows.push(`<div class="inquiry-item"><div><b>${x.inquiry_no}</b>｜${x.customer_name}${x.company_name?'・'+x.company_name:''}<br><small>${new Date(x.created_at).toLocaleString()}｜${x.request_type||'未指定'}｜${x.status}</small><p>${x.description||''}</p>${links.join(' ')}</div><div><select onchange="setInquiryStatus('${x.id}',this.value)"><option value="new" ${x.status==='new'?'selected':''}>新詢價</option><option value="contacted" ${x.status==='contacted'?'selected':''}>已聯絡</option><option value="quoting" ${x.status==='quoting'?'selected':''}>報價中</option><option value="quoted" ${x.status==='quoted'?'selected':''}>已報價</option><option value="won" ${x.status==='won'?'selected':''}>成交</option><option value="lost" ${x.status==='lost'?'selected':''}>未成交</option></select><textarea placeholder="內部備註" onchange="setInquiryNote('${x.id}',this.value)">${x.admin_note||''}</textarea></div></div>`)}$('inquiryList').innerHTML=rows.join('')||'<p>目前沒有詢價。</p>'}
-window.setInquiryStatus=async(id,status)=>{await db.from('inquiries').update({status,updated_at:new Date().toISOString()}).eq('id',id);loadInquiries()};window.setInquiryNote=async(id,admin_note)=>{await db.from('inquiries').update({admin_note,updated_at:new Date().toISOString()}).eq('id',id)};
+// ===== V7.1 inquiry management: complete customer details =====
+function inquiryEscape(value){
+  return String(value===null||value===undefined||String(value).trim()===''?'未提供':value)
+    .replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function inquiryField(label,value){
+  return `<div style="min-width:0;overflow-wrap:anywhere"><small style="opacity:.7">${inquiryEscape(label)}</small><div>${inquiryEscape(value)}</div></div>`;
+}
+async function loadInquiries(){
+  const list=$('inquiryList');
+  const {data,error}=await db.from('inquiries').select('*').order('created_at',{ascending:false});
+  if(error){console.error('詢價讀取失敗',error);list.textContent='詢價資料讀取失敗：'+error.message;return;}
+  inquiries=data||[];
+  $('dInquiries').textContent=inquiries.filter(x=>x.status==='new').length;
+  const rows=[];
+  const statuses=[['new','新詢價'],['contacted','已聯絡'],['quoting','報價中'],['quoted','已報價'],['won','成交'],['lost','未成交']];
+  for(const x of inquiries){
+    const links=[];
+    for(let i=0;i<(Array.isArray(x.file_urls)?x.file_urls:[]).length;i++){
+      const {data:signed,error:signError}=await db.storage.from('inquiry-files').createSignedUrl(x.file_urls[i],3600);
+      if(signError){console.warn('附件連結取得失敗',signError);continue;}
+      if(signed?.signedUrl){
+        try{const url=new URL(signed.signedUrl,location.href);if(url.protocol==='https:'||url.protocol==='http:')links.push(`<a href="${inquiryEscape(url.href)}" target="_blank" rel="noopener noreferrer">附件 ${i+1}</a>`)}catch(e){console.warn('附件網址無效',e)}
+      }
+    }
+    const material=materials.find(m=>m.id===x.material_id);
+    const date=x.created_at?new Date(x.created_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'未提供';
+    const email=String(x.email||'').trim();
+    const phone=String(x.phone||'').trim();
+    const mailLink=email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)?`<a href="mailto:${encodeURIComponent(email)}">寄送 Email</a>`:'';
+    const telLink=phone&&/^[+\d\s()\-#]+$/.test(phone)?`<a href="tel:${phone.replace(/[^+\d]/g,'')}">撥打電話</a>`:'';
+    rows.push(`<div class="inquiry-item" style="align-items:start;gap:24px">
+      <div style="min-width:0;flex:1">
+        <h3 style="margin:0 0 8px;overflow-wrap:anywhere">${inquiryEscape(x.inquiry_no)}</h3>
+        <small>${inquiryEscape(date)}｜${inquiryEscape(x.request_type)}</small>
+        <h4>客戶聯絡資料</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
+          ${inquiryField('客戶姓名',x.customer_name)}
+          ${inquiryField('公司名稱',x.company_name)}
+          ${inquiryField('聯絡電話',x.phone)}
+          ${inquiryField('Email',x.email)}
+          ${inquiryField('LINE ID',x.line_id)}
+        </div>
+        <p>${[telLink,mailLink].filter(Boolean).join('　')}</p>
+        <h4>製作需求</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
+          ${inquiryField('製作服務',x.request_type)}
+          ${inquiryField('材料',material?.name||x.material_id)}
+          ${inquiryField('數量',x.quantity)}
+          ${inquiryField('尺寸',x.dimensions)}
+          ${inquiryField('用途',x.purpose)}
+          ${inquiryField('期望交期',x.desired_date)}
+        </div>
+        <h4>需求詳細說明</h4>
+        <p style="white-space:pre-wrap;overflow-wrap:anywhere">${inquiryEscape(x.description)}</p>
+        ${links.length?`<div>附件：${links.join('　')}</div>`:''}
+      </div>
+      <div style="min-width:220px;flex:0 1 300px">
+        <label>案件狀態
+          <select onchange="setInquiryStatus('${inquiryEscape(x.id)}',this.value)">
+            ${statuses.map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}
+          </select>
+        </label>
+        <label>內部備註
+          <textarea placeholder="內部備註" onchange="setInquiryNote('${inquiryEscape(x.id)}',this.value)">${x.admin_note?inquiryEscape(x.admin_note):''}</textarea>
+        </label>
+      </div>
+    </div>`);
+  }
+  list.innerHTML=rows.join('')||'<p>目前沒有詢價。</p>';
+}
+window.setInquiryStatus=async(id,status)=>{
+  const {error}=await db.from('inquiries').update({status,updated_at:new Date().toISOString()}).eq('id',id);
+  if(error){alert('案件狀態更新失敗：'+error.message);await loadInquiries();return;}
+  await loadInquiries();
+};
+window.setInquiryNote=async(id,admin_note)=>{
+  const {error}=await db.from('inquiries').update({admin_note,updated_at:new Date().toISOString()}).eq('id',id);
+  if(error)alert('內部備註儲存失敗：'+error.message);
+};
 async function loadArticles(){const {data}=await db.from('articles').select('*').order('published_at',{ascending:false});articles=data||[];$('articleList').innerHTML=articles.map(x=>`<div class="list-item"><div><b>${x.title}</b><br><small>${x.category}｜${x.published?'已發布':'草稿'}</small></div><div class="actions"><button onclick="editArticle('${x.id}')">編輯</button><button class="delete" onclick="delArticle('${x.id}')">刪除</button></div></div>`).join('')}
 $('articleForm').onsubmit=async e=>{e.preventDefault();try{let p={title:$('arTitle').value,category:$('arCategory').value,summary:$('arSummary').value,content:$('arContent').value,published:$('arPublished').checked,published_at:$('arDate').value||new Date().toISOString().slice(0,10),sort_order:+$('arOrder').value||0,updated_at:new Date().toISOString()};if($('arCover').files[0])p.cover_url=await upload($('arCover').files[0],'articles');let q=$('arId').value?db.from('articles').update(p).eq('id',$('arId').value):db.from('articles').insert(p),{error}=await q;if(error)throw error;resetArticle();loadArticles()}catch(err){alert(err.message)}};window.editArticle=id=>{let x=articles.find(v=>v.id===id);$('arId').value=x.id;$('arTitle').value=x.title;$('arCategory').value=x.category;$('arSummary').value=x.summary||'';$('arContent').value=x.content||'';$('arDate').value=x.published_at||'';$('arPublished').checked=x.published;$('arOrder').value=x.sort_order||0};window.delArticle=async id=>{if(confirm('確定刪除此文章？')){await db.from('articles').delete().eq('id',id);loadArticles()}};function resetArticle(){$('articleForm').reset();$('arId').value='';$('arPublished').checked=true}$('arReset').onclick=resetArticle;
 async function loadFaqs(){const {data}=await db.from('faqs').select('*').order('sort_order');faqs=data||[];$('faqAdminList').innerHTML=faqs.map(x=>`<div class="list-item"><div><b>${x.question}</b><br><small>${x.category}｜${x.active?'顯示':'隱藏'}</small></div><div class="actions"><button onclick="editFaq('${x.id}')">編輯</button><button class="delete" onclick="delFaq('${x.id}')">刪除</button></div></div>`).join('')}
