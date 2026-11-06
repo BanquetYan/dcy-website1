@@ -36,8 +36,8 @@ boot();
 
 // ===== V6 modules =====
 let inquiries=[],articles=[],faqs=[];
-async function loadHome(){const {data}=await db.from('site_settings').select('*').eq('id',1).maybeSingle();if(!data)return;$('hTitle').value=data.hero_title||'從想法，到實際製作。';$('hSubtitle').value=data.hero_subtitle||'';$('hDescription').value=data.hero_description||'';$('hQuoteText').value=data.quote_button_text||'取得報價'}
-$('homeForm').onsubmit=async e=>{e.preventDefault();try{let p={hero_title:$('hTitle').value,hero_subtitle:$('hSubtitle').value,hero_description:$('hDescription').value,quote_button_text:$('hQuoteText').value,updated_at:new Date().toISOString()};if($('hImage').files[0])p.hero_image_url=await upload($('hImage').files[0],'home');let {error}=await db.from('site_settings').update(p).eq('id',1);if(error)throw error;$('homeMsg').textContent='✓ 首頁設定已儲存'}catch(err){$('homeMsg').textContent=err.message}}
+async function loadHome(){const {data}=await db.from('site_settings').select('*').eq('id',1).maybeSingle();if(!data)return;$('hTitle').value=data.hero_title||'從想法，到實際製作。';$('hSubtitle').value=data.hero_subtitle||'';$('hDescription').value=data.hero_description||'';$('hQuoteText').value=data.quote_button_text||'取得報價';window.dcyLoadBanners?.(data.hero_banners||[])}
+$('homeForm').onsubmit=async e=>{e.preventDefault();try{let p={hero_title:$('hTitle').value,hero_subtitle:$('hSubtitle').value,hero_description:$('hDescription').value,quote_button_text:$('hQuoteText').value,updated_at:new Date().toISOString()};if($('hImage').files[0])p.hero_image_url=await upload($('hImage').files[0],'home');p.hero_banners=await window.dcySaveBanners();let {error}=await db.from('site_settings').update(p).eq('id',1);if(error)throw error;$('homeMsg').textContent='✓ 首頁設定已儲存'}catch(err){$('homeMsg').textContent=err.message}}
 // ===== V7.1 inquiry management: complete customer details =====
 function inquiryEscape(value){
   return String(value===null||value===undefined||String(value).trim()===''?'未提供':value)
